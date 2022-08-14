@@ -188,7 +188,7 @@ pub struct Bid {
 }
 
 pub async fn get_auctions() -> Result<Vec<Auction>, reqwest::Error> {
-    let auction_first_response = reqwest::get("https://api.hypixel.net/skyblock/auctions?https://api.hypixel.net/skyblock/auctions?page=0").await?.json::<AuctionRoot>().await?;
+    let auction_first_response = reqwest::get("https://api.hypixel.net/skyblock/auctions?page=0").await?.json::<AuctionRoot>().await?;
     let mut auctions = auction_first_response.auctions.clone();
     let pages: i32 = auction_first_response.total_pages.clone() as i32;
 
@@ -200,7 +200,7 @@ pub async fn get_auctions() -> Result<Vec<Auction>, reqwest::Error> {
 
     let client = Client::new();
 
-    let urls = (1..pages).into_iter().map(|page| format!("https://api.hypixel.net/skyblock/auctions?https://api.hypixel.net/skyblock/auctions?page={}", page)).collect::<Vec<String>>();
+    let urls = (1..pages).into_iter().map(|page| format!("https://api.hypixel.net/skyblock/auctions?page={}", page)).collect::<Vec<String>>();
 
     let bodies = stream::iter(urls)
         .enumerate()
@@ -235,6 +235,23 @@ pub async fn get_auctions() -> Result<Vec<Auction>, reqwest::Error> {
         auctions.extend(auction.auctions);
     }
     println!("--------------------------------------------------------------------------------------\n");
+
+    // println!("cleaning up...");
+    // let mut unique = vec![];
+    // let mut to_remove = vec![];
+    // for( i, auction) in &auctions.iter().enumerate().collect::<Vec<(usize, &Auction)>>() {
+    //     if unique.contains(&auction.uuid) {
+    //         to_remove.push(*i);
+    //     } else {
+    //         unique.push(auction.uuid.clone());
+    //     }
+    // }
+    //
+    // to_remove.reverse();
+    //
+    // for i in to_remove {
+    //     auctions.remove(i);
+    // }
 
     Ok(auctions)
 }

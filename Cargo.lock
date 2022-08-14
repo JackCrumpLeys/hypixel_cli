@@ -476,6 +476,7 @@ dependencies = [
  "flate2",
  "futures",
  "mc-legacy-formatting",
+ "nom",
  "quartz_nbt",
  "rayon",
  "reqwest",

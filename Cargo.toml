@@ -20,3 +20,4 @@ flate2 = "1.0.24"
 stringreader = "0.1.1"
 base64 = "0.13.0"
 quartz_nbt = {version = "0.2.6", features = ["serde"]}
+nom = "7.1.1"

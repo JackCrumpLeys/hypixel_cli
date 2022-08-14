@@ -1,13 +1,19 @@
 #![feature(is_some_with)]
-use crate::auction::{get_auctions, AuctionRoot, Auction};
+
+use crate::auction::{get_auctions, Auction, AuctionRoot};
 use crate::util::print_middle;
 use futures::future::ok;
 use futures::{stream, StreamExt};
+use mc_legacy_formatting::{Span, SpanExt};
+use nom::InputIter;
+use quartz_nbt::{NbtCompound, NbtList, NbtReprError, NbtTag};
 use rayon::prelude::*;
 use reqwest::Client;
+use std::collections::HashMap;
+use std::env::args;
 use std::io;
 use std::io::{BufRead, Stdin, Write};
-use mc_legacy_formatting::{Span, SpanExt};
+use std::ops::Index;
 use tabled::display::ExpandedDisplay;
 use tabled::Table;
 
@@ -22,7 +28,6 @@ mod util;
 ///
 /// A result with a possible error
 async fn main() -> Result<(), reqwest::Error> {
-
     let timer = std::time::Instant::now();
 
     let mut auctions;
@@ -48,10 +53,7 @@ async fn main() -> Result<(), reqwest::Error> {
     println!(
         "--------------------------------------------------------------------------------------"
     );
-    print_middle(
-        "Welcome to the Hypixel Skyblock Auction Checker",
-        80,
-    );
+    print_middle("Welcome to the Hypixel Skyblock Auction Checker", 80);
     print_middle("Made by smug rainbow#7777 on discord", 80);
     print_middle(
         "This program is open source and can be found at PLACEHOLDER",
@@ -78,7 +80,10 @@ async fn main() -> Result<(), reqwest::Error> {
     let stdin: Stdin = io::stdin();
 
     loop {
-        if handle_input(&stdin, &mut line, &mut auctions).await.is_ok_and(|out| *out) {
+        if handle_input(&stdin, &mut line, &mut auctions)
+            .await
+            .is_ok_and(|out| *out)
+        {
             break;
         }
     }
@@ -96,19 +101,67 @@ async fn main() -> Result<(), reqwest::Error> {
     Ok(())
 }
 
-async fn handle_input(stdin: &Stdin, line: &mut String, auctions: &mut Vec<Auction>) -> Result<bool, ()> {
+async fn handle_input(
+    stdin: &Stdin,
+    line: &mut String,
+    auctions: &mut Vec<Auction>,
+) -> Result<bool, ()> {
     print!("=>");
     io::stdout().flush();
 
     stdin.lock().read_line(line).expect("Could not read line");
 
-    let op = line.trim_end();
+    let mut param_on = false;
+    let op = line.trim();
+    let flags = op
+        .chars()
+        .enumerate()
+        .filter_map(|(i, char)| {
+            if i == op.len() {
+                return None;
+            }
+            if char == '-' {
+                return Some(*op.chars().collect::<Vec<char>>().index(i + 1));
+            }
+            None
+        })
+        .collect::<Vec<char>>();
+    let op = line
+        .chars()
+        .filter_map(|char| {
+            if char == '-' {
+                param_on = true;
+                return None;
+            }
+            if param_on {
+                param_on = false;
+                return None;
+            }
+            Some(char.to_string())
+        })
+        .collect::<Vec<String>>()
+        .join("");
+    let op = op.trim();
+    println!(
+        "passed flags: {}",
+        flags
+            .iter()
+            .map(|flag| format!("-{}", flag))
+            .collect::<Vec<String>>()
+            .join(", ")
+    );
+
     if op == "help" {
         print_middle("======================================", 80);
         print_middle("help - Shows this help menu", 80);
         print_middle("exit - exit the application", 80);
         print_middle("update <auctions> - update data", 80);
-        print_middle("get <item name> - gets all items on auction with that name", 80);
+        print_middle(
+            "get [-b] <item name> - gets all items on auction with that name, -b for bin items",
+            80,
+        );
+        print_middle("get_book [-b] <enchant name> [enchant level] - get a book with that enchantment on it and optionally that level", 80);
+        print_middle("auctions best deals  <number of items to show> - Shows the best deals on bin items and gives you the command to buy it", 80);
         print_middle("======================================", 80);
     } else if op.to_lowercase().starts_with("update ") {
         if op.to_lowercase().ends_with("auctions") {
@@ -125,8 +178,93 @@ async fn handle_input(stdin: &Stdin, line: &mut String, auctions: &mut Vec<Aucti
         }
     } else if op.to_lowercase().starts_with("get ") {
         let item = op.strip_prefix("get ").unwrap();
-        let filtered = auctions.iter().filter(|auction| auction.item_name == item.to_string()).collect::<Vec<&Auction>>();
-        println!("{}",  ExpandedDisplay::new(filtered))
+        println!("getting {}", item);
+        let mut filtered = auctions
+            .iter()
+            .filter(|auction| auction.item_name == item.to_string())
+            .filter(|auction| {
+                if flags.contains(&'b') {
+                    return auction.bin;
+                }
+                true
+            });
+        println!(
+            "{}",
+            ExpandedDisplay::new(filtered.collect::<Vec<&Auction>>())
+        );
+    } else if op.to_lowercase().starts_with("get_book ") {
+        let args = op
+            .strip_prefix("get_book ")
+            .unwrap()
+            .split(" ")
+            .collect::<Vec<&str>>();
+        println!("arguments: {:?}", args);
+        let enchant = *args.index(0);
+        let level = args.get(1);
+        println!("getting {}", enchant);
+        let mut filtered = auctions
+            .iter()
+            .filter(|auction| {
+                <NbtTag as TryInto<NbtCompound>>::try_into(
+                    auction
+                        .item_bytes
+                        .nbt
+                        .get::<_, &NbtList>("i")
+                        .expect("invalid item nbt")[0]
+                        .clone(),
+                )
+                .expect("invalid item nbt")
+                .get::<_, i16>("id")
+                .expect("invalid item nbt")
+                    == 403
+            })
+            .filter(|auction| {
+                let nbt = <NbtTag as TryInto<NbtCompound>>::try_into(
+                    auction
+                        .item_bytes
+                        .nbt
+                        .get::<_, &NbtList>("i")
+                        .expect("invalid item nbt")[0]
+                        .clone(),
+                )
+                .unwrap();
+
+                let enchatments = match nbt
+                    .get::<_, &NbtCompound>("tag")
+                    .expect("invalid item nbt")
+                    .get::<_, &NbtCompound>("ExtraAttributes")
+                    .expect("invalid item nbt")
+                    .get::<_, &NbtCompound>("enchantments")
+                {
+                    Ok(enchatments) => enchatments,
+                    Err(_) => return false,
+                };
+
+                let has_enchantment = enchatments.contains_key(enchant);
+
+                if has_enchantment && level.is_none() {
+                    return true;
+                } else if level.is_some() && has_enchantment {
+                    let book_enchantment_level = enchatments.get::<_, i32>(enchant).unwrap();
+                    return level
+                        .unwrap()
+                        .to_string()
+                        .parse::<i32>()
+                        .expect("invalid level number")
+                        == book_enchantment_level;
+                }
+                return false;
+            })
+            .filter(|auction| {
+                if flags.contains(&'b') {
+                    return auction.bin;
+                }
+                true
+            });
+        println!(
+            "{}",
+            ExpandedDisplay::new(filtered.collect::<Vec<&Auction>>())
+        );
     } else if op == "exit" {
         return Ok(true);
     } else {
